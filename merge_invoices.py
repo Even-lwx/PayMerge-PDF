@@ -2,20 +2,16 @@
 # -*- coding: utf-8 -*-
 
 """
-发票合并脚本
+Invoice Merge Script - Adaptive Layout Version
 
-功能：
-- 扫描当前目录，找到形如 “[编号+名称+价格].pdf” 的源发票，以及对应的 “购买记录” 与 “支付记录” 图片（jpg/jpeg/png）。
-- 仅当三者齐全时，生成合并后的 PDF 到子目录 “已合并/”，命名为 “[原名]已合并.pdf”。
-- 已存在的合并文件不覆盖。
-- 不修改任何源文件。
+This script automatically merges invoice PDFs with corresponding purchase and payment record images.
+It uses intelligent layout algorithms to optimize space utilization based on image dimensions.
 
-合并规则（单页）：
-- A4 纵向白底，四边 30mm 大边距；
-- 上半页：源发票（第一页）等比缩放居中；
-- 下半页：购买记录、支付记录两张图左右并排，各占四分之一面积，等比缩放居中。
-
-注意：若源发票 PDF 含多页，仅取第一页参与合并。
+Key Features:
+- Adaptive layout selection (horizontal or vertical)
+- Proportional scaling without distortion
+- Automatic space optimization
+- Preserves original files
 """
 
 from __future__ import annotations
@@ -23,7 +19,7 @@ from __future__ import annotations
 import os
 import sys
 from io import BytesIO
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 
 from PIL import Image
 import pypdfium2 as pdfium
@@ -54,7 +50,7 @@ def classify_file(filename: str) -> Tuple[Optional[str], Optional[str]]:
     """根据命名识别类型
     返回 (base_key, kind)
     kind ∈ {"pdf", "buy", "pay"} 或 None
-    base_key 为不含后缀的“编号+名称+价格”原始基名
+    base_key 为不含后缀的"编号+名称+价格"原始基名
     """
     base, ext = split_suffix(filename)
     if ext == ".pdf" and not base.endswith("已合并"):
@@ -110,11 +106,11 @@ def render_invoice_first_page_as_image(pdf_path: str, dpi: int = 300) -> Image.I
 
 
 def make_single_page_pdf(invoice_img: Image.Image, buy_img_path: str, pay_img_path: str) -> bytes:
-    """使用 Pillow 生成最终单页 PDF（A4 纵向、白底），上半放发票，
-    下半左右放购买记录与支付记录。四边大边距 30mm。
+    """使用 Pillow 生成最终单页 PDF（A4 纵向、白底），智能自适应布局。
+    根据三张图片的实际尺寸和比例，动态调整布局以最大化利用空间。
     """
     a4_w_mm, a4_h_mm = 210.0, 297.0
-    margin_mm = 15.0  # 大边距
+    margin_mm = 15.0  # 边距
     dpi = 300
 
     def mm_to_px(mm: float) -> int:
@@ -128,11 +124,6 @@ def make_single_page_pdf(invoice_img: Image.Image, buy_img_path: str, pay_img_pa
     content_w = page_w - margin * 2
     content_h = page_h - margin * 2
 
-    # 区域划分
-    top_h = content_h // 2        # 上半给发票
-    bottom_h = content_h - top_h  # 下半给两张记录图
-    col_w = content_w // 2        # 下半左右两列
-
     # 画布
     canvas_img = Image.new("RGB", (page_w, page_h), color=(255, 255, 255))
 
@@ -141,6 +132,7 @@ def make_single_page_pdf(invoice_img: Image.Image, buy_img_path: str, pay_img_pa
         return img.convert("RGB")
 
     def fit_into(img: Image.Image, max_w: int, max_h: int) -> Image.Image:
+        """等比缩放图片以适应指定区域"""
         iw, ih = img.size
         scale = min(max_w / iw, max_h / ih)
         new_w = max(1, int(round(iw * scale)))
@@ -153,33 +145,149 @@ def make_single_page_pdf(invoice_img: Image.Image, buy_img_path: str, pay_img_pa
             resample = getattr(Image, "LANCZOS", getattr(Image, "ANTIALIAS", bicubic))
         return img.resize((new_w, new_h), resample)
 
-    # 准备三张图
-    invoice_img = fit_into(invoice_img.convert("RGB"), content_w, top_h)
-    buy_img = fit_into(open_as_rgb(buy_img_path), col_w, bottom_h)
-    pay_img = fit_into(open_as_rgb(pay_img_path), col_w, bottom_h)
-
-    # 图像坐标：左上(0,0)，向下为正
-    # 上半区域顶端：margin
-    top_region_top = margin
-    # 下半区域顶端：margin + top_h
-    bottom_region_top = margin + top_h
-
-    # 将像素坐标系统一为从上往下增长
-    def paste_center_topdown(img: Image.Image, region_left: int, region_top: int, region_w: int, region_h: int) -> None:
+    def get_best_orientation(img: Image.Image, max_w: int, max_h: int) -> Tuple[Image.Image, float]:
+        """测试图片原始方向和旋转90度后的效果，返回更适合的方向和缩放系数"""
         w, h = img.size
-        x = region_left + (region_w - w) // 2
-        y = region_top + (region_h - h) // 2
-        canvas_img.paste(img, (x, y))
+        
+        # 原始方向的缩放系数
+        scale_original = min(max_w / w, max_h / h)
+        
+        # 旋转90度后的缩放系数
+        scale_rotated = min(max_w / h, max_h / w)
+        
+        # 选择缩放系数更大的方向（即图片更大的方向）
+        if scale_rotated > scale_original:
+            rotated_img = img.rotate(90, expand=True)
+            return rotated_img, scale_rotated
+        else:
+            return img, scale_original
 
-    # 粘贴上半发票（整行居中）
-    paste_center_topdown(invoice_img, margin, top_region_top, content_w, top_h)
+    def get_optimal_layout(invoice_size: Tuple[int, int], buy_size: Tuple[int, int], pay_size: Tuple[int, int]) -> Dict[str, Any]:
+        """根据三张图片的尺寸计算最优布局，考虑旋转可能性"""
+        # 测试所有图片的最佳方向组合
+        best_layout = None
+        best_score = 0
+        best_orientations = {}
+        
+        # 遍历所有可能的旋转组合（2^3 = 8种组合）
+        for inv_rot in [False, True]:  # 发票是否旋转
+            for buy_rot in [False, True]:  # 购买记录是否旋转
+                for pay_rot in [False, True]:  # 支付记录是否旋转
+                    
+                    # 计算旋转后的尺寸
+                    inv_w, inv_h = invoice_size if not inv_rot else (invoice_size[1], invoice_size[0])
+                    buy_w, buy_h = buy_size if not buy_rot else (buy_size[1], buy_size[0])
+                    pay_w, pay_h = pay_size if not pay_rot else (pay_size[1], pay_size[0])
+                    
+                    # 计算各图片的宽高比
+                    inv_ratio = inv_w / inv_h
+                    buy_ratio = buy_w / buy_h
+                    pay_ratio = pay_w / pay_h
+                    
+                    # 测试方案1: 发票占上部，两图片并排占下部
+                    max_inv_h_1 = min(content_h * 0.7, content_w / inv_ratio)
+                    inv_scale_1 = min(content_w / inv_w, max_inv_h_1 / inv_h)
+                    actual_inv_h_1 = int(inv_h * inv_scale_1)
+                    
+                    remaining_h_1 = content_h - actual_inv_h_1 - mm_to_px(5)
+                    if remaining_h_1 > 0:
+                        total_width_ratio = buy_ratio + pay_ratio
+                        buy_area_w_1 = int(content_w * (buy_ratio / total_width_ratio))
+                        pay_area_w_1 = content_w - buy_area_w_1
+                        
+                        buy_scale_1 = min(buy_area_w_1 / buy_w, remaining_h_1 / buy_h)
+                        pay_scale_1 = min(pay_area_w_1 / pay_w, remaining_h_1 / pay_h)
+                    else:
+                        buy_scale_1 = pay_scale_1 = 0
+                    
+                    layout_1_score = inv_scale_1 + buy_scale_1 + pay_scale_1
+                    
+                    # 测试方案2: 发票占左侧，两图片纵向排列占右侧
+                    max_inv_w_2 = min(content_w * 0.65, content_h * inv_ratio)
+                    inv_scale_2 = min(max_inv_w_2 / inv_w, content_h / inv_h)
+                    actual_inv_w_2 = int(inv_w * inv_scale_2)
+                    
+                    remaining_w_2 = content_w - actual_inv_w_2 - mm_to_px(5)
+                    if remaining_w_2 > 0:
+                        each_h_2 = content_h // 2
+                        buy_scale_2 = min(remaining_w_2 / buy_w, each_h_2 / buy_h)
+                        pay_scale_2 = min(remaining_w_2 / pay_w, each_h_2 / pay_h)
+                    else:
+                        buy_scale_2 = pay_scale_2 = 0
+                        
+                    layout_2_score = inv_scale_2 + buy_scale_2 + pay_scale_2
+                    
+                    # 选择当前组合下的最佳布局
+                    if layout_1_score >= layout_2_score:
+                        current_score = layout_1_score
+                        current_layout = {
+                            'type': 'horizontal',
+                            'invoice_area': (0, 0, content_w, actual_inv_h_1),
+                            'buy_area': (0, actual_inv_h_1 + mm_to_px(5), buy_area_w_1, remaining_h_1),
+                            'pay_area': (buy_area_w_1, actual_inv_h_1 + mm_to_px(5), pay_area_w_1, remaining_h_1)
+                        }
+                    else:
+                        current_score = layout_2_score
+                        current_layout = {
+                            'type': 'vertical',
+                            'invoice_area': (0, 0, actual_inv_w_2, content_h),
+                            'buy_area': (actual_inv_w_2 + mm_to_px(5), 0, remaining_w_2, each_h_2),
+                            'pay_area': (actual_inv_w_2 + mm_to_px(5), each_h_2, remaining_w_2, each_h_2)
+                        }
+                    
+                    # 更新全局最佳方案
+                    if current_score > best_score:
+                        best_score = current_score
+                        best_layout = current_layout
+                        best_orientations = {
+                            'invoice_rotate': inv_rot,
+                            'buy_rotate': buy_rot,
+                            'pay_rotate': pay_rot
+                        }
+        
+        # 添加旋转信息到布局结果中
+        best_layout['orientations'] = best_orientations
+        return best_layout
 
-    # 下半左右两张
-    left_region_left = margin
-    right_region_left = margin + col_w
-    paste_center_topdown(buy_img, left_region_left, bottom_region_top, col_w, bottom_h)
-    paste_center_topdown(pay_img, right_region_left, bottom_region_top, col_w, bottom_h)
-
+    # 准备三张图片
+    invoice_rgb = invoice_img.convert("RGB")
+    buy_rgb = open_as_rgb(buy_img_path)
+    pay_rgb = open_as_rgb(pay_img_path)
+    
+    # 计算最优布局（包含旋转信息）
+    layout = get_optimal_layout(invoice_rgb.size, buy_rgb.size, pay_rgb.size)
+    orientations = layout['orientations']
+    
+    # 根据最优方案旋转图片
+    if orientations['invoice_rotate']:
+        invoice_rgb = invoice_rgb.rotate(90, expand=True)
+        debug("发票图片旋转90度以优化布局")
+    
+    if orientations['buy_rotate']:
+        buy_rgb = buy_rgb.rotate(90, expand=True)
+        debug("购买记录图片旋转90度以优化布局")
+    
+    if orientations['pay_rotate']:
+        pay_rgb = pay_rgb.rotate(90, expand=True)
+        debug("支付记录图片旋转90度以优化布局")
+    
+    def paste_in_area(img: Image.Image, area: Tuple[int, int, int, int]) -> None:
+        """在指定区域内居中粘贴图片"""
+        area_x, area_y, area_w, area_h = area
+        fitted_img = fit_into(img, area_w, area_h)
+        
+        # 计算居中位置
+        img_w, img_h = fitted_img.size
+        x = margin + area_x + (area_w - img_w) // 2
+        y = margin + area_y + (area_h - img_h) // 2
+        
+        canvas_img.paste(fitted_img, (x, y))
+    
+    # 按布局粘贴三张图片（已应用旋转）
+    paste_in_area(invoice_rgb, layout['invoice_area'])
+    paste_in_area(buy_rgb, layout['buy_area'])
+    paste_in_area(pay_rgb, layout['pay_area'])
+    
     # 保存成 PDF
     buf = BytesIO()
     canvas_img.save(buf, format="PDF", resolution=dpi)
