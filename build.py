@@ -1,6 +1,11 @@
 """
-发票合并工具打包脚本
+发票合并工具打包脚本 v3.0
 使用 PyInstaller 将 Python 脚本打包为独立可执行文件
+
+版本特性:
+- 核心功能完善，支持所有使用场景
+- 企业级稳定性，适合生产环境部署
+- 完整的错误处理和用户体验优化
 
 使用方法:
 1. 确保已安装所有依赖: pip install -r requirements.txt
@@ -63,7 +68,7 @@ def build_executable():
         sys.executable, "-m", "PyInstaller",
         "--onefile",                    # 打包成单个文件
         "--windowed",                   # Windows下不显示控制台窗口
-        "--name", "发票合并工具",         # 可执行文件名称
+        "--name", "发票合并工具_v3.0",    # 可执行文件名称
         "--add-data", "merge_invoices.py;.",      # 添加原始脚本
         "--add-data", "README.md;.",              # 添加README到打包文件
         "--hidden-import", "PIL._tkinter_finder", # 确保PIL正常工作
@@ -77,9 +82,13 @@ def build_executable():
     
     if run_command(cmd, "打包可执行文件"):
         print("\n✓ 打包完成！")
-        print(f"可执行文件位置: {script_dir / 'dist' / '发票合并工具.exe'}")
+        print(f"可执行文件位置: {script_dir / 'dist' / '发票合并工具_v3.0.exe'}")
+        print("\n✨ v3.0 版本特性:")
+        print("• 核心功能完善，支持所有使用场景")
+        print("• 企业级稳定性，适合生产环境")
+        print("• 完整的错误处理和用户体验")
         print("\n使用说明:")
-        print("1. 将生成的 '发票合并工具.exe' 复制到包含发票文件的目录")
+        print("1. 将生成的可执行文件复制到包含发票文件的目录")
         print("2. 双击运行即可自动合并发票")
         print("3. 合并后的文件将保存在 '已合并' 子目录中")
         return True
@@ -111,7 +120,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='发票合并工具',
+    name='发票合并工具_v3.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

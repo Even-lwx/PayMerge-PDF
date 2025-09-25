@@ -36,7 +36,7 @@ except ImportError:
 class InvoiceMergerGUI:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("发票合并工具 v2.0")
+        self.root.title("发票合并工具 v3.0")
         self.root.geometry("600x500")
         self.root.resizable(True, True)
         
