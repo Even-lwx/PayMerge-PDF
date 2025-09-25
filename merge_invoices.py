@@ -305,8 +305,13 @@ def merge_to_output(src_pdf_path: str, buy_img_path: str, pay_img_path: str, out
 
 
 def main(argv: list[str]) -> int:
-    # 默认在脚本所在目录运行
-    root = os.path.dirname(os.path.abspath(__file__))
+    # 支持传入工作目录参数，或使用当前工作目录
+    if argv and os.path.exists(argv[0]):
+        root = os.path.abspath(argv[0])
+    else:
+        # 优先使用当前工作目录，而不是脚本所在目录
+        root = os.getcwd()
+    
     out_dir = ensure_output_dir(root)
 
     index = build_index(root)

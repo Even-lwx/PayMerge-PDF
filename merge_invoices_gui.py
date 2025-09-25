@@ -14,7 +14,23 @@ import threading
 from pathlib import Path
 
 # 导入原有的合并逻辑
-from merge_invoices import main as merge_main
+try:
+    from merge_invoices import main as merge_main
+except ImportError:
+    # 如果打包后找不到模块，尝试从当前目录导入
+    import importlib.util
+    current_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(__file__)
+    merge_script = os.path.join(current_dir, 'merge_invoices.py')
+    if os.path.exists(merge_script):
+        spec = importlib.util.spec_from_file_location("merge_invoices", merge_script)
+        merge_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(merge_module)
+        merge_main = merge_module.main
+    else:
+        # 最后的备用方案：内嵌合并逻辑
+        def merge_main(args):
+            print("错误：无法找到合并逻辑模块")
+            return 1
 
 
 class InvoiceMergerGUI:
@@ -129,7 +145,14 @@ class InvoiceMergerGUI:
             self.process_directory(directory)
             
     def use_current_directory(self):
-        current_dir = os.getcwd()
+        # 获取可执行文件所在目录作为当前目录
+        if getattr(sys, 'frozen', False):
+            # 打包后的可执行文件
+            current_dir = os.path.dirname(sys.executable)
+        else:
+            # 开发环境
+            current_dir = os.getcwd()
+            
         result = messagebox.askyesno(
             "确认", 
             f"确定要处理当前目录的发票文件吗？\n\n当前目录：\n{current_dir}"
@@ -151,9 +174,8 @@ class InvoiceMergerGUI:
         
     def run_merge(self, directory):
         try:
-            # 切换到目标目录
+            # 记录原始工作目录
             original_cwd = os.getcwd()
-            os.chdir(directory)
             
             # 重定向输出到GUI
             import io
@@ -161,19 +183,26 @@ class InvoiceMergerGUI:
             
             output_buffer = io.StringIO()
             
+            # 直接传递目录参数，不切换工作目录
             with redirect_stdout(output_buffer), redirect_stderr(output_buffer):
-                result_code = merge_main([])
+                result_code = merge_main([directory])
             
             # 获取输出内容
             output = output_buffer.getvalue()
             
-            # 恢复原始目录
-            os.chdir(original_cwd)
+            # 确保工作目录没有被意外改变
+            if os.getcwd() != original_cwd:
+                os.chdir(original_cwd)
             
             # 更新GUI（需要在主线程中执行）
             self.root.after(0, self.update_result, directory, output, result_code)
             
         except Exception as e:
+            # 恢复工作目录
+            try:
+                os.chdir(original_cwd)
+            except:
+                pass
             self.root.after(0, self.show_error, str(e))
             
     def update_result(self, directory, output, result_code):
