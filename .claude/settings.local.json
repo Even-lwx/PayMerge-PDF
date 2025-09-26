@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(pyinstaller:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
