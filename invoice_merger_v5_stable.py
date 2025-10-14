@@ -436,16 +436,9 @@ class SimpleInvoiceMergerV5:
         else:
             data["invoice_date"] = "未识别"
             
-        # 金额
-        amount_patterns = [r'价税合计[：:\s]*¥?(\d+\.?\d*)', r'合计金额[：:\s]*¥?(\d+\.?\d*)', r'¥(\d+\.?\d*)']
-        raw_amount = self.extract_by_patterns(full_text, amount_patterns)
-        if raw_amount:
-            try:
-                data["amount"] = float(raw_amount)
-            except ValueError:
-                data["amount"] = "未识别"
-        else:
-            data["amount"] = "未识别"
+        # 金额 - 提取价税合计（含税总额）
+        # 使用多种策略提取，确保获取包含税额的总金额
+        data["amount"] = self.extract_total_amount(full_text)
             
         # 销售方名称
         seller_patterns = [r'销售方[：:\s]*([^\n\r]+?)(?:\s|纳税人)', r'卖方[：:\s]*([^\n\r]+?)(?:\s|纳税人)']
@@ -461,6 +454,74 @@ class SimpleInvoiceMergerV5:
             if match:
                 return match.group(1).strip()
         return None
+
+    def extract_total_amount(self, text: str) -> float or str:
+        """
+        提取发票价税合计金额（含税总额）
+        使用多种策略确保提取到正确的含税总金额
+        """
+        # 策略1: 查找"价税合计"关键字后的金额
+        # 这是最可靠的方法，因为"价税合计"是法定的含税总额
+        patterns_strategy1 = [
+            # 匹配: 价税合计(大写)xxx(小写)¥123.45 或 价税合计(大写)xxx(小写) ¥123.45
+            r'价税合计[\s\S]{0,50}?小写[）\)]*[：:\s]*¥?\s*([\d,，]+\.?\d*)',
+            # 匹配: 价税合计...¥123.45 (在价税合计后100字符内查找¥符号)
+            r'价税合计[\s\S]{0,100}?¥\s*([\d,，]+\.\d{2})',
+            # 匹配: 价税合计 后面直接跟数字
+            r'价税合计[：:\s]+¥?\s*([\d,，]+\.\d{2})',
+        ]
+
+        for pattern in patterns_strategy1:
+            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+            if match:
+                raw_amount = match.group(1)
+                try:
+                    clean_amount = raw_amount.replace(',', '').replace('，', '').strip()
+                    amount = float(clean_amount)
+                    # 金额合理性检查：一般发票金额在0.01-999999999之间
+                    if 0.01 <= amount <= 999999999:
+                        return amount
+                except ValueError:
+                    continue
+
+        # 策略2: 查找"合计"相关字段（次优选择）
+        patterns_strategy2 = [
+            r'合计金额[：:\s]*¥?\s*([\d,，]+\.\d{2})',
+            r'总金额[：:\s]*¥?\s*([\d,，]+\.\d{2})',
+            r'应付金额[：:\s]*¥?\s*([\d,，]+\.\d{2})',
+        ]
+
+        for pattern in patterns_strategy2:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                raw_amount = match.group(1)
+                try:
+                    clean_amount = raw_amount.replace(',', '').replace('，', '').strip()
+                    amount = float(clean_amount)
+                    if 0.01 <= amount <= 999999999:
+                        return amount
+                except ValueError:
+                    continue
+
+        # 策略3: 查找发票中所有的金额，选择最大的一个（通常价税合计是最大值）
+        # 这个策略作为最后的保底方案
+        all_amounts = []
+        amount_pattern = r'¥\s*([\d,，]+\.\d{2})'
+        for match in re.finditer(amount_pattern, text):
+            try:
+                raw_amount = match.group(1)
+                clean_amount = raw_amount.replace(',', '').replace('，', '').strip()
+                amount = float(clean_amount)
+                if 0.01 <= amount <= 999999999:
+                    all_amounts.append(amount)
+            except ValueError:
+                continue
+
+        if all_amounts:
+            # 返回最大金额（通常就是价税合计）
+            return max(all_amounts)
+
+        return "未识别"
 
     def extract_success(self, data):
         """数据提取成功"""
@@ -640,24 +701,16 @@ class SimpleInvoiceMergerV5:
                     pass
 
             self.merge_btn.config(state=tk.NORMAL, text="🚀 智能合并")
-            self.status_label.config(text="✅ 合并成功！")
 
-            # 成功提示
-            message = f"文件已保存到：\n{output_path}\n\n"
+            # 构建成功消息
+            success_msg = f"✅ 合并成功！文件已保存"
             if self.extracted_data:
-                message += "🔍 已提取发票数据并使用智能文件名\n"
-                message += f"📊 已记录到汇总文件\n\n"
-            
-            message += "是否打开文件所在目录？"
+                success_msg += f" | 已记录到CSV"
 
-            if messagebox.askyesno("合并成功", message):
-                output_dir = os.path.dirname(output_path)
-                if sys.platform == 'win32':
-                    os.startfile(output_dir)
+            self.status_label.config(text=success_msg)
 
-            # 询问是否继续
-            if messagebox.askyesno("继续", "是否继续处理其他发票？"):
-                self.clear_files()
+            # 自动清除文件，准备处理下一张
+            self.clear_files()
 
         except Exception as e:
             self.merge_btn.config(state=tk.NORMAL, text="🚀 智能合并")
@@ -669,8 +722,13 @@ class SimpleInvoiceMergerV5:
         try:
             with open(self.csv_path, 'a', encoding='utf-8-sig', newline='') as f:
                 writer = csv.writer(f)
+                # 发票号码添加制表符前缀，防止Excel将其转为科学计数法
+                invoice_number = data.get('invoice_number', '')
+                if invoice_number and invoice_number != '未识别':
+                    invoice_number = f"\t{invoice_number}"
+
                 writer.writerow([
-                    data.get('invoice_number', ''),
+                    invoice_number,
                     data.get('invoice_date', ''),
                     data.get('amount', ''),
                     data.get('seller_name', ''),

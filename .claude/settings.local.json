@@ -1,13 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pip install:*)",
-      "Bash(python:*)",
-      "Bash(tasklist:*)",
-      "Bash(findstr:*)",
-      "Bash(taskkill:*)",
-      "Bash(cmd.exe:*)",
-      "Bash(pyinstaller:*)"
+      "Bash(rm -f \"v2.0升级说明.md\" \"自适应布局说明.md\" \"修复确认报告.md\" \"打包分发指南.md\" \"打包完成说明.md\" \"使用说明.md\" \"v5.0命名规则更新说明.md\" \"v5.0修复说明.md\" \"v5.0金额提取修复说明.md\" \"商品识别功能说明.md\" \"商品识别修复报告.md\")",
+      "Bash(rm -rf \"发票合并工具v5稳定版_发布包\" \"发票合并工具v5稳定版_完整分发包\" \"发票合并工具_v3.0_分发包\" \"发票合并工具_分发包\" \"测试目录\" \"已合并\" build dist)",
+      "Bash(git add -A)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nrefactor: 清理项目结构，整合文档\n\n重大变更:\n- 删除所有旧版本文件(v1-v4, 测试文件, 空文件)\n- 删除所有打包和分发目录及配置文件\n- 删除所有历史文档和修复说明\n- 合并所有文档到 README.md\n- 更新 .gitignore 忽略分发包和构建文件\n\n核心保留:\n- invoice_merger_v5_stable.py (主程序)\n- merge_invoices_simple.py (合并引擎)\n- build_stable_exe.py (打包脚本)\n- README.md (完整使用文档)\n- CLAUDE.md (AI开发文档)\n- requirements.txt / requirements-build.txt\n\n项目结构更清晰，只保留 v5.0 稳定版核心代码\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
