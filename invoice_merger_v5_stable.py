@@ -38,6 +38,15 @@ except ImportError:
     PDF_AVAILABLE = False
     pdfium = None
 
+# 尝试导入Excel处理库
+try:
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+    openpyxl = None
+
 # 导入原有的合并逻辑
 try:
     from merge_invoices_simple import merge_simple
@@ -269,6 +278,19 @@ class SimpleInvoiceMergerV5:
             command=self.clear_files
         )
         self.clear_btn.pack(side=tk.LEFT, padx=(0, 10))
+
+        # 批量提取按钮
+        self.batch_extract_btn = tk.Button(
+            button_frame,
+            text="📊 批量提取",
+            font=("微软雅黑", 10, "bold"),
+            bg='#722ed1',
+            fg='white',
+            padx=15,
+            pady=8,
+            command=self.batch_extract_invoices
+        )
+        self.batch_extract_btn.pack(side=tk.LEFT, padx=(0, 10))
 
         # 右侧按钮
         self.extract_btn = tk.Button(
@@ -738,6 +760,156 @@ class SimpleInvoiceMergerV5:
                 ])
         except Exception as e:
             print(f"保存CSV记录失败: {e}")
+
+    def batch_extract_invoices(self):
+        """批量提取发票信息"""
+        if not PDF_AVAILABLE:
+            messagebox.showerror("功能不可用", "批量提取功能需要pypdfium2库支持！\n\n请先安装：pip install pypdfium2")
+            return
+
+        if not EXCEL_AVAILABLE:
+            messagebox.showerror("功能不可用", "批量提取功能需要openpyxl库支持！\n\n请先安装：pip install openpyxl")
+            return
+
+        # 选择文件夹
+        folder_path = filedialog.askdirectory(
+            title="选择包含发票PDF的文件夹"
+        )
+
+        if not folder_path:
+            return
+
+        # 禁用按钮
+        self.batch_extract_btn.config(state=tk.DISABLED, text="🔄 处理中...")
+        self.status_label.config(text="正在扫描文件夹...")
+
+        # 在后台线程中处理
+        def batch_worker():
+            try:
+                # 扫描PDF文件
+                pdf_files = []
+                for root, dirs, files in os.walk(folder_path):
+                    for file in files:
+                        if file.lower().endswith('.pdf'):
+                            pdf_files.append(os.path.join(root, file))
+
+                if not pdf_files:
+                    self.root.after(0, lambda: self.batch_extract_failed("未找到PDF文件"))
+                    return
+
+                total = len(pdf_files)
+                self.root.after(0, lambda: self.status_label.config(
+                    text=f"找到 {total} 个PDF文件，开始提取数据...")
+                )
+
+                # 提取数据
+                extracted_list = []
+                success_count = 0
+                fail_count = 0
+
+                for idx, pdf_path in enumerate(pdf_files, 1):
+                    try:
+                        self.root.after(0, lambda i=idx, t=total, n=os.path.basename(pdf_path):
+                            self.status_label.config(text=f"正在处理 {i}/{t}: {n[:30]}...")
+                        )
+
+                        data = self.extract_invoice_data(pdf_path)
+                        extracted_list.append(data)
+                        success_count += 1
+                    except Exception as e:
+                        fail_count += 1
+                        print(f"提取失败 {pdf_path}: {e}")
+
+                # 导出到Excel
+                self.root.after(0, lambda: self.status_label.config(text="正在生成Excel文件..."))
+                excel_path = self.export_to_excel(extracted_list, folder_path)
+
+                # 完成
+                self.root.after(0, lambda: self.batch_extract_success(
+                    total, success_count, fail_count, excel_path
+                ))
+
+            except Exception as e:
+                self.root.after(0, lambda: self.batch_extract_failed(str(e)))
+
+        thread = threading.Thread(target=batch_worker, daemon=True)
+        thread.start()
+
+    def export_to_excel(self, data_list: List[Dict[str, Any]], folder_path: str) -> str:
+        """导出数据到Excel文件"""
+        # 创建工作簿
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "发票信息汇总"
+
+        # 设置表头样式
+        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF", size=12)
+        header_alignment = Alignment(horizontal="center", vertical="center")
+
+        # 表头
+        headers = ['序号', '发票号码', '开票日期', '金额', '销售方名称', '文件名', '文件路径', '提取时间']
+        for col_idx, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+
+        # 数据行样式
+        data_alignment = Alignment(horizontal="left", vertical="center")
+        number_alignment = Alignment(horizontal="right", vertical="center")
+
+        # 填充数据
+        for row_idx, data in enumerate(data_list, 2):
+            ws.cell(row=row_idx, column=1, value=row_idx-1).alignment = number_alignment  # 序号
+            ws.cell(row=row_idx, column=2, value=data.get('invoice_number', '')).alignment = data_alignment
+            ws.cell(row=row_idx, column=3, value=data.get('invoice_date', '')).alignment = data_alignment
+
+            # 金额特殊处理
+            amount = data.get('amount', '')
+            if isinstance(amount, (int, float)):
+                ws.cell(row=row_idx, column=4, value=amount).alignment = number_alignment
+            else:
+                ws.cell(row=row_idx, column=4, value=str(amount)).alignment = data_alignment
+
+            ws.cell(row=row_idx, column=5, value=data.get('seller_name', '')).alignment = data_alignment
+            ws.cell(row=row_idx, column=6, value=data.get('file_name', '')).alignment = data_alignment
+            ws.cell(row=row_idx, column=7, value=data.get('file_path', '')).alignment = data_alignment
+            ws.cell(row=row_idx, column=8, value=data.get('extracted_at', '')).alignment = data_alignment
+
+        # 调整列宽
+        column_widths = [8, 20, 15, 12, 25, 30, 50, 20]
+        for col_idx, width in enumerate(column_widths, 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
+
+        # 保存文件
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        excel_filename = f"发票信息汇总_{timestamp}.xlsx"
+        excel_path = os.path.join(folder_path, excel_filename)
+        wb.save(excel_path)
+
+        return excel_path
+
+    def batch_extract_success(self, total: int, success: int, fail: int, excel_path: str):
+        """批量提取成功"""
+        self.batch_extract_btn.config(state=tk.NORMAL, text="📊 批量提取")
+        self.status_label.config(text=f"✅ 批量提取完成！成功 {success}/{total} 个")
+
+        messagebox.showinfo(
+            "批量提取完成",
+            f"✅ 处理完成！\n\n"
+            f"总文件数：{total}\n"
+            f"成功提取：{success}\n"
+            f"提取失败：{fail}\n\n"
+            f"Excel文件已保存：\n{os.path.basename(excel_path)}\n\n"
+            f"位置：{os.path.dirname(excel_path)}"
+        )
+
+    def batch_extract_failed(self, error_msg: str):
+        """批量提取失败"""
+        self.batch_extract_btn.config(state=tk.NORMAL, text="📊 批量提取")
+        self.status_label.config(text="❌ 批量提取失败")
+        messagebox.showerror("批量提取失败", f"处理过程中出现错误：\n{error_msg}")
 
     def run(self):
         """运行主程序"""
