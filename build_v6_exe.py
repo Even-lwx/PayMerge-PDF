@@ -47,7 +47,7 @@ def build_v6_exe():
         'pyinstaller',
         '--onefile',
         '--windowed',
-        '--name=InvoiceMergeTool_v6',
+        '--name=ASC_InvoiceMergeTool_v6.1',
         icon_arg,
         '--add-data=merge_invoices_v6.py;.',
         '--add-data=source/icon.ico;source',

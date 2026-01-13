@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-发票合并工具 v6.0 - 简化稳定版
+ASC实验室发票合并工具 v6.1 - 李文轩天才杰作~
 基于 v4.0 拖放版本升级，新增智能数据提取功能
 简化版本，专注于稳定性和可靠性
 """
@@ -107,14 +107,15 @@ class ConfigManager:
 
 class ConfigDialog(tk.Toplevel):
     """配置对话框 - 美化版"""
-    def __init__(self, parent, title="配置信息", initial_name="", initial_group=""):
+    def __init__(self, parent, title="配置信息", initial_name="", initial_group="", initial_output_path=""):
         super().__init__(parent)
         self.title(title)
-        self.geometry("480x520")
+        self.geometry("480x620")
         self.resizable(False, False)
         self.result = None
         self.name_var = tk.StringVar(value=initial_name)
         self.group_var = tk.StringVar(value=initial_group)
+        self.initial_output_path = initial_output_path
         
         # 设置背景色
         self.configure(bg='#f0f4f8')
@@ -175,6 +176,27 @@ class ConfigDialog(tk.Toplevel):
                                      relief='flat', bg='#e8f4fd', fg='#2c3e50')
         self.group_entry.pack(fill=tk.X, padx=10, pady=10)
         
+        # 输出路径配置
+        tk.Label(input_frame, text="输出路径（可选）", font=("微软雅黑", 12, "bold"), fg="#34495e", bg='white', anchor='w').pack(fill=tk.X, pady=(15, 5))
+        
+        output_path_container = tk.Frame(input_frame, bg='white')
+        output_path_container.pack(fill=tk.X)
+        
+        output_entry_frame = tk.Frame(output_path_container, bg='#e8f4fd', highlightbackground='#4a90e2', highlightthickness=2)
+        output_entry_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        self.output_path_var = tk.StringVar(value=getattr(self, 'initial_output_path', ''))
+        self.output_path_entry = tk.Entry(output_entry_frame, textvariable=self.output_path_var, font=("微软雅黑", 11), 
+                                          relief='flat', bg='#e8f4fd', fg='#2c3e50')
+        self.output_path_entry.pack(fill=tk.X, padx=8, pady=8)
+        
+        browse_btn = tk.Button(output_path_container, text="📁", font=("Segoe UI Emoji", 12),
+                               bg='#4a90e2', fg='white', relief='flat', cursor='hand2',
+                               command=self.browse_output_path)
+        browse_btn.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        tk.Label(input_frame, text="留空则使用软件所在目录", font=("微软雅黑", 9), fg="#95a5a6", bg='white', anchor='w').pack(fill=tk.X, pady=(2, 0))
+        
         # 按钮区域
         button_frame = tk.Frame(main_card, bg='white')
         button_frame.pack(pady=25)
@@ -194,14 +216,63 @@ class ConfigDialog(tk.Toplevel):
         self.bind('<Return>', lambda e: self.ok())
         self.bind('<Escape>', lambda e: self.cancel())
     
+    def validate_input(self, text: str, field_name: str) -> tuple:
+        """验证输入只包含中文、英文、数字、下划线"""
+        import re
+        if not text:
+            return False, f"{field_name}不能为空"
+        # 只允许中文、英文、数字、下划线
+        pattern = r'^[\u4e00-\u9fa5a-zA-Z0-9_]+$'
+        if not re.match(pattern, text):
+            return False, f"{field_name}只能包含中文、英文、数字和下划线"
+        return True, ""
+    
     def ok(self):
         name = self.name_var.get().strip()
         group = self.group_var.get().strip()
-        if not name or not group:
-            messagebox.showwarning("输入不完整", "请输入姓名和组别！", parent=self)
+        
+        # 验证姓名
+        valid, msg = self.validate_input(name, "姓名")
+        if not valid:
+            messagebox.showwarning("输入错误", msg, parent=self)
+            self.name_entry.focus()
             return
-        self.result = {'name': name, 'group': group}
+        
+        # 验证组别
+        valid, msg = self.validate_input(group, "组别")
+        if not valid:
+            messagebox.showwarning("输入错误", msg, parent=self)
+            self.group_entry.focus()
+            return
+        
+        # 验证输出路径（如果有）
+        if hasattr(self, 'output_path_var'):
+            output_path = self.output_path_var.get().strip()
+            if output_path:
+                # 检查路径是否有效
+                if not os.path.isdir(output_path):
+                    if not messagebox.askyesno("路径不存在", f"输出路径不存在，是否创建？\n{output_path}", parent=self):
+                        return
+                    try:
+                        os.makedirs(output_path, exist_ok=True)
+                    except Exception as e:
+                        messagebox.showerror("创建失败", f"无法创建目录：\n{e}", parent=self)
+                        return
+                self.result = {'name': name, 'group': group, 'output_path': output_path}
+            else:
+                self.result = {'name': name, 'group': group}
+        else:
+            self.result = {'name': name, 'group': group}
         self.destroy()
+    
+    def browse_output_path(self):
+        """浏览选择输出路径"""
+        current_path = self.output_path_var.get().strip()
+        initial_dir = current_path if current_path and os.path.isdir(current_path) else os.path.expanduser('~')
+        
+        folder = filedialog.askdirectory(title="选择输出目录", initialdir=initial_dir, parent=self)
+        if folder:
+            self.output_path_var.set(folder)
     
     def cancel(self):
         self.result = None
@@ -209,7 +280,7 @@ class ConfigDialog(tk.Toplevel):
 
 
 class SimpleInvoiceMergerV6:
-    """v6.0 简化版智能发票合并工具"""
+    """ ASC实验室发票合并工具 v6.1 - 李文轩天才杰作~"""
     
     def __init__(self):
         # 配置管理器
@@ -222,7 +293,7 @@ class SimpleInvoiceMergerV6:
             self.root = tk.Tk()
         
         # 先设置主窗口属性
-        self.root.title("发票合并工具 v6.0 - 多页PDF支持版")
+        self.root.title("ASC实验室发票合并工具 v6.1 - 李文轩天才杰作~")
         self.root.geometry("800x700")
         self.root.resizable(True, True)
         
@@ -310,17 +381,39 @@ class SimpleInvoiceMergerV6:
             title = "首次运行 - 配置信息"
             initial_name = ""
             initial_group = ""
+            initial_output_path = ""
         else:
             title = "修改配置"
             initial_name = self.config_manager.get('name', '')
             initial_group = self.config_manager.get('group', '')
+            initial_output_path = self.config_manager.get('output_path_absolute', '')
         
-        dialog = ConfigDialog(self.root, title, initial_name, initial_group)
+        dialog = ConfigDialog(self.root, title, initial_name, initial_group, initial_output_path)
         self.root.wait_window(dialog)
         
         if dialog.result:
             self.config_manager.set('name', dialog.result['name'])
             self.config_manager.set('group', dialog.result['group'])
+            
+            # 保存输出路径（同时保存绝对路径和相对路径）
+            if 'output_path' in dialog.result and dialog.result['output_path']:
+                output_path = dialog.result['output_path']
+                self.config_manager.set('output_path_absolute', os.path.abspath(output_path))
+                # 计算相对路径（相对于程序目录）
+                try:
+                    if getattr(sys, 'frozen', False):
+                        app_dir = os.path.dirname(sys.executable)
+                    else:
+                        app_dir = os.path.dirname(os.path.abspath(__file__))
+                    rel_path = os.path.relpath(output_path, app_dir)
+                    self.config_manager.set('output_path_relative', rel_path)
+                except ValueError:
+                    # 不同盘符无法计算相对路径
+                    self.config_manager.set('output_path_relative', '')
+            else:
+                self.config_manager.set('output_path_absolute', '')
+                self.config_manager.set('output_path_relative', '')
+            
             if hasattr(self, 'config_label'):
                 self.update_config_display()
             return True
@@ -330,7 +423,50 @@ class SimpleInvoiceMergerV6:
         """更新配置显示"""
         name = self.config_manager.get('name', '未配置')
         group = self.config_manager.get('group', '未配置')
-        self.config_label.config(text=f"👤 使用者：{name}  |  📊 组别：{group}")
+        output_path = self.config_manager.get('output_path_absolute', '')
+        if output_path:
+            # 显示路径的简短版本
+            if len(output_path) > 30:
+                display_path = "..." + output_path[-27:]
+            else:
+                display_path = output_path
+            self.config_label.config(text=f"👤 {name}  |  📊 {group}  |  📁 {display_path}")
+        else:
+            self.config_label.config(text=f"👤 使用者：{name}  |  📊 组别：{group}")
+    
+    def get_output_directory(self) -> tuple:
+        """
+        获取有效的输出目录
+        返回: (output_dir, error_message)
+        优先使用绝对路径，失败则尝试相对路径，都失败则返回错误
+        """
+        # 获取程序根目录（作为默认和相对路径基准）
+        if getattr(sys, 'frozen', False):
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # 获取配置的路径
+        abs_path = self.config_manager.get('output_path_absolute', '')
+        rel_path = self.config_manager.get('output_path_relative', '')
+        
+        # 如果没有配置路径，使用程序根目录
+        if not abs_path and not rel_path:
+            return app_dir, None
+        
+        # 优先尝试绝对路径
+        if abs_path and os.path.isdir(abs_path):
+            return abs_path, None
+        
+        # 尝试相对路径
+        if rel_path:
+            full_rel_path = os.path.join(app_dir, rel_path)
+            if os.path.isdir(full_rel_path):
+                return full_rel_path, None
+        
+        # 两个路径都无效
+        error_msg = f"配置的输出路径无效！\\n\\n绝对路径：{abs_path or '(未设置)'}\\n相对路径：{rel_path or '(未设置)'}\\n\\n请点击【修改配置】重新设置输出路径。"
+        return None, error_msg
 
     def setup_ui(self):
         self.root.configure(bg=self.colors['bg'])
@@ -338,7 +474,7 @@ class SimpleInvoiceMergerV6:
         # 标题
         title_label = tk.Label(
             self.root,
-            text="📄 发票合并工具 v6.0 - 多页PDF支持版",
+            text="📄ASC实验室发票合并工具 v6.1 - 李文轩天才杰作~",
             font=("微软雅黑", 16, "bold"),
             bg=self.colors['bg'],
             fg=self.colors['text']
@@ -875,7 +1011,9 @@ class SimpleInvoiceMergerV6:
                 display_text += "📝 输出文件命名：\n"
                 display_text += "-" * 30 + "\n"
                 display_text += f"{new_filename}\n\n"
-                display_text += "💡 输出位置：软件根目录\n"
+                # 显示输出位置
+                output_dir, _ = self.get_output_directory()
+                display_text += f"💡 输出位置：{output_dir or '未配置'}\n"
             else:
                 display_text = "💡 使用说明：\n"
                 display_text += "1. 选择或拖放1个PDF发票文件（支持多页）\n"
@@ -885,7 +1023,8 @@ class SimpleInvoiceMergerV6:
                 display_text += "• 支持多页PDF完整处理（发票每页占1/2区域）\n"
                 display_text += "• 自动提取发票信息并智能命名\n"
                 display_text += f"• 输出格式：{self.config_manager.get('name', '姓名')}_{self.config_manager.get('group', '组别')}_金额_发票后四位.pdf\n"
-                display_text += "• 自动保存到软件根目录"
+                output_dir, _ = self.get_output_directory()
+                display_text += f"• 输出位置：{output_dir or '请配置输出路径'}"
         else:
             display_text = "💡 使用说明：\n"
             display_text += "1. 选择或拖放1个PDF发票文件（支持多页）\n"
@@ -961,18 +1100,28 @@ class SimpleInvoiceMergerV6:
             messagebox.showerror("合并失败", f"合并过程中出现错误：\n{e}")
 
     def output_merged_file(self):
-        """一键输出：提取数据+合并PDF+自动命名+保存到根目录"""
+        """一键输出：提取数据+合并PDF+自动命名+保存到配置的输出目录"""
         # 检查文件是否已选择
         if not self.pdf_file or len(self.image_files) != 2:
             messagebox.showwarning("提示", "请先选择所有必需的文件：\n- 发票PDF\n- 购买记录截图\n- 支付记录截图")
+            return
+        
+        # 检查输出目录是否有效
+        output_dir, error_msg = self.get_output_directory()
+        if error_msg:
+            messagebox.showerror("输出路径错误", error_msg)
             return
         
         # 禁用按钮，防止重复点击
         self.output_btn.config(state=tk.DISABLED, text="🔄 处理中...")
         self.status_label.config(text="正在处理...")
         
+        # 用于存储警告信息
+        warnings = []
+        
         # 在后台线程中处理
         def output_worker():
+            nonlocal warnings
             try:
                 # 1. 验证PDF文件是否有效
                 self.root.after(0, lambda: self.status_label.config(text="正在验证PDF文件..."))
@@ -993,22 +1142,59 @@ class SimpleInvoiceMergerV6:
                 # 3. 验证提取的数据是否有效（判断是否为发票）
                 invoice_number = invoice_data.get('invoice_number', '未识别')
                 amount = invoice_data.get('amount', '未识别')
+                
+                # 收集警告信息
+                if amount == '未识别':
+                    warnings.append("⚠️ 未能识别发票金额，文件名中金额显示为0")
+                if invoice_number == '未识别':
+                    warnings.append("⚠️ 未能识别发票号码，文件名中发票后四位显示为0000")
+                
                 if invoice_number == '未识别' and amount == '未识别':
-                    # 可能不是发票文件，给出警告但继续处理
                     self.root.after(0, lambda: self.status_label.config(text="⚠️ 未能识别发票信息，继续合并..."))
                 
                 # 4. 生成文件名
                 output_filename = self.generate_filename(invoice_data)
                 
-                # 5. 确定输出目录（软件根目录）
-                if getattr(sys, 'frozen', False):
-                    output_dir = os.path.dirname(sys.executable)
-                else:
-                    output_dir = os.path.dirname(os.path.abspath(__file__))
-                
+                # 5. 确定输出路径
                 output_path = os.path.join(output_dir, output_filename)
                 
-                # 6. 合并PDF（使用多页支持）
+                # 6. 检查文件是否已存在（重复导出检测）
+                if os.path.exists(output_path):
+                    # 在主线程中询问用户
+                    result = {'overwrite': False, 'cancelled': False}
+                    def ask_overwrite():
+                        response = messagebox.askyesnocancel(
+                            "文件已存在", 
+                            f"输出目录中已存在同名文件：\n{output_filename}\n\n可能是重复导出的发票。\n\n是否覆盖？\n• 是 - 覆盖现有文件\n• 否 - 自动添加序号\n• 取消 - 取消操作"
+                        )
+                        if response is None:
+                            result['cancelled'] = True
+                        elif response:
+                            result['overwrite'] = True
+                        else:
+                            # 添加序号
+                            base, ext = os.path.splitext(output_filename)
+                            counter = 1
+                            while os.path.exists(os.path.join(output_dir, f"{base}_{counter}{ext}")):
+                                counter += 1
+                            result['new_filename'] = f"{base}_{counter}{ext}"
+                    
+                    self.root.after(0, ask_overwrite)
+                    # 等待用户响应
+                    import time
+                    while 'new_filename' not in result and not result['overwrite'] and not result['cancelled']:
+                        time.sleep(0.1)
+                        if result['overwrite'] or result['cancelled']:
+                            break
+                    
+                    if result['cancelled']:
+                        self.root.after(0, lambda: self.output_cancelled())
+                        return
+                    
+                    if 'new_filename' in result:
+                        output_path = os.path.join(output_dir, result['new_filename'])
+                
+                # 7. 合并PDF（使用多页支持）
                 self.root.after(0, lambda: self.status_label.config(text="正在合并PDF..."))
                 
                 from merge_invoices_v6 import merge_with_multi_pages
@@ -1022,7 +1208,7 @@ class SimpleInvoiceMergerV6:
                 )
                 
                 # 完成，显示成功消息
-                self.root.after(0, lambda p=output_path: self.output_success(p))
+                self.root.after(0, lambda p=output_path, w=warnings: self.output_success(p, w))
                 
             except ValueError as ve:
                 # 验证错误，给出友好提示
@@ -1037,12 +1223,25 @@ class SimpleInvoiceMergerV6:
         thread = threading.Thread(target=output_worker, daemon=True)
         thread.start()
     
-    def output_success(self, output_path: str):
+    def output_cancelled(self):
+        """输出取消回调"""
+        self.output_btn.config(state=tk.NORMAL, text="✅ 一键输出")
+        self.status_label.config(text="已取消操作")
+    
+    def output_success(self, output_path: str, warnings: list = None):
         """输出成功回调"""
         self.output_btn.config(state=tk.NORMAL, text="✅ 一键输出")
         self.status_label.config(text="✅ 输出成功！")
         
+        # 构建成功消息
         success_msg = f"已成功生成文件：\n{os.path.basename(output_path)}\n\n保存位置：\n{os.path.dirname(output_path)}"
+        
+        # 添加警告信息
+        if warnings:
+            success_msg += "\n\n" + "=" * 30 + "\n"
+            success_msg += "提示信息：\n"
+            success_msg += "\n".join(warnings)
+        
         messagebox.showinfo("输出成功", success_msg)
         
         # 自动清除文件，准备处理下一张
