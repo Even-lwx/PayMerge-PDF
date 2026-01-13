@@ -119,19 +119,10 @@ def build_executable():
                 print(f"📦 生成的exe文件: {exe_path}")
                 print(f"📏 文件大小: {file_size:.1f} MB")
                 
-                # 创建运行目录
-                release_dir = "发票合并工具v5稳定版_发布包"
-                if os.path.exists(release_dir):
-                    shutil.rmtree(release_dir)
-                os.makedirs(release_dir)
+                # 直接在dist目录创建使用说明
+                create_readme('dist')
                 
-                # 复制exe文件
-                shutil.copy2(exe_path, release_dir)
-                
-                # 创建使用说明
-                create_readme(release_dir)
-                
-                print(f"🎉 发布包已准备完成: {release_dir}/")
+                print(f"🎉 打包完成！所有文件在: dist/")
                 return True
             else:
                 print("❌ 找不到生成的exe文件")
@@ -238,9 +229,9 @@ def main():
     # 执行打包
     if build_executable():
         cleanup()
-        print("\n🎉 打包完成！")
-        print("📁 发布包位置: 发票合并工具v5稳定版_发布包/")
-        print("💡 可以将整个文件夹分发给其他用户使用")
+        print("\n🎉 全部完成！")
+        print("📁 文件位置: dist/")
+        print("💡 可以将dist文件夹分发给其他用户使用")
         return 0
     else:
         print("\n❌ 打包失败")

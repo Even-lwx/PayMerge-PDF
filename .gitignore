@@ -94,3 +94,11 @@ Thumbs.db
 .env.development.local
 .env.test.local
 .env.production.local
+config.json
+
+# 临时检查文件
+temp_*.txt
+
+#AI 模型文件
+.claude
+.spec-workflow
